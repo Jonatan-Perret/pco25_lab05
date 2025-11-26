@@ -8,7 +8,10 @@ set(CMAKE_CXX_STANDARD 17)
 
 add_compile_options(-g)
 
-find_package(Qt6 COMPONENTS Core Gui Test Widgets REQUIRED)
+find_package(Qt5 COMPONENTS Core Gui Widgets Test)
+if (NOT Qt5_FOUND)
+    find_package(Qt6 COMPONENTS Core Gui Widgets Test REQUIRED)
+endif()
 
 set(SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp
@@ -41,6 +44,10 @@ if(WITH_TSAN)
     target_link_options(pco_labo_biking PRIVATE -fsanitize=thread)
 endif()
 
-target_link_libraries(pco_labo_biking PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test pcosynchro)
+if (NOT Qt5_FOUND) 
+    target_link_libraries(pco_labo_biking PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test pcosynchro)
+else()
+    target_link_libraries(pco_labo_biking PRIVATE Qt5::Core Qt5::Gui Qt5::Widgets Qt5::Test pcosynchro)
+endif()
 
 file(COPY images/ DESTINATION ${CMAKE_BINARY_DIR}/images/)
