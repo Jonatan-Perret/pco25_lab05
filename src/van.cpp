@@ -9,7 +9,7 @@ Van::Van(unsigned int _id)
 {}
 
 void Van::run() {
-    while (true /*TODO: clean stop*/) {
+    while (!PcoThread::thisThread()->stopRequested()) {
         loadAtDepot();
         for (unsigned int s = 0; s < NBSITES; ++s) {
             driveTo(s);

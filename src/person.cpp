@@ -27,12 +27,32 @@ void Person::setInterface(BikingInterface* _binkingInterface) {
 
 
 void Person::run() {
-    // TODO: implement this method
+    /*
+    Boucle infinie
+        1. Attendre qu’un vélo du site i devienne disponible et le prendre.
+        2. Aller au site j ̸= i.
+        3. Attendre qu’une borne du site j devienne libre et libérer son vélo.
+        4. Faire une activité à pied pour se rendre à un autre site k.
+        5. i ←k
+    Fin de la boucle
+    */
+    while(!PcoThread::thisThread()->stopRequested()){
+        unsigned int bikeDestination = chooseOtherSite(currentSite);
+        Bike* bike = takeBikeFromSite(currentSite);
+        bikeTo(bikeDestination, bike);
+        depositBikeAtSite(bikeDestination, bike);
+        currentSite = bikeDestination;
+        unsigned int walkDestination = chooseOtherSite(currentSite);
+        walkTo(walkDestination);
+        currentSite = walkDestination;
+    }
 }
 
 Bike* Person::takeBikeFromSite(unsigned int _site) {
     Bike * bike = nullptr; // just to silence compiler warnings
     // TODO: implement this method
+
+
 
     if (binkingInterface) {
         binkingInterface->setBikes(_site, stations[_site]->nbBikes());
@@ -43,6 +63,8 @@ Bike* Person::takeBikeFromSite(unsigned int _site) {
 
 void Person::depositBikeAtSite(unsigned int _site, Bike* _bike) {
     // TODO: implement this method
+
+
 
     if (binkingInterface) {
         binkingInterface->setBikes(_site, stations[_site]->nbBikes());

@@ -5,6 +5,7 @@
 #include "config.h"
 #include "bikestation.h"
 #include "bikinginterface.h"
+#include "pcosynchro/pcothread.h"
 
 /**
  * @brief Simulates an person using the bike-sharing system.

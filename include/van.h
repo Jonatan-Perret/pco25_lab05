@@ -6,6 +6,7 @@
 #include "config.h"
 #include "bikestation.h"
 #include "bikinginterface.h"
+#include "pcosynchro/pcothread.h"
 
 /**
  * @brief Simulates the van that rebalances bikes between sites and the depot.
