@@ -38,6 +38,8 @@ void Van::driveTo(unsigned int _dest) {
     if (currentSite == _dest)
         return;
 
+    log(QString("Conduit du site %1 au site %2 (cargo: %3 vélos)")
+        .arg(currentSite).arg(_dest).arg(cargo.size()));
     unsigned int travelTime = randomTravelTimeMs();
     if (binkingInterface) {
         binkingInterface->vanTravel(currentSite, _dest, travelTime);
@@ -51,8 +53,11 @@ void Van::loadAtDepot() {
 
     // TODO: implement this method. If possible, load at least 2 bikes
     cargo.clear();
-    std::vector<Bike*> loadedBikes = stations[DEPOT_ID]->getBikes(2);
+    log(QString("Charge des vélos au dépôt"));
+    std::vector<Bike*> loadedBikes = stations[DEPOT_ID]->getBikes(VAN_CAPACITY);
     cargo.insert(cargo.end(), loadedBikes.begin(), loadedBikes.end());
+    log(QString("Chargé %1 vélos (dépôt: %2 vélos restants)")
+        .arg(loadedBikes.size()).arg(stations[DEPOT_ID]->nbBikes()));
 
     if (binkingInterface) {
         binkingInterface->setBikes(DEPOT_ID, stations[DEPOT_ID]->nbBikes());
@@ -65,11 +70,16 @@ void Van::balanceSite(unsigned int _site)
     // TODO: implement this method. Balance the number of bikes at the given site
     size_t targetBikes = BORNES - 2;
     size_t currentBikes = stations[_site]->nbBikes();
+    log(QString("Équilibre site %1: %2 vélos (cible: %3)")
+        .arg(_site).arg(currentBikes).arg(targetBikes));
     if (currentBikes > targetBikes && cargo.size() < VAN_CAPACITY) {
         // Take bikes from site
-        size_t bikesToTake = currentBikes - targetBikes;
+        size_t availableSpace = VAN_CAPACITY - cargo.size();
+        size_t bikesToTake = std::min(availableSpace, currentBikes - targetBikes);
         std::vector<Bike*> takenBikes = stations[_site]->getBikes(bikesToTake);
         cargo.insert(cargo.end(), takenBikes.begin(), takenBikes.end());
+        log(QString("Récupéré %1 vélos du site %2")
+            .arg(takenBikes.size()).arg(_site));
     } else if (currentBikes < targetBikes && !cargo.empty()) {
         // Drop bikes to site
         size_t bikesToDrop = targetBikes - currentBikes;
@@ -79,9 +89,11 @@ void Van::balanceSite(unsigned int _site)
             cargo.pop_back();
         }
         stations[_site]->addBikes(bikesToAdd);
+        log(QString("Déposé %1 vélos au site %2")
+            .arg(bikesToAdd.size()).arg(_site));
     }
     if (binkingInterface) {
-        binkingInterface->setBikes(DEPOT_ID, stations[DEPOT_ID]->nbBikes()); // Keep somewhere for GUI
+        binkingInterface->setBikes(_site, stations[_site]->nbBikes());
     }
 }
 
@@ -92,8 +104,13 @@ void Van::returnToDepot() {
 
     // TODO: implement this method. If the van carries bikes, then leave them
     if (!cargo.empty()) {
+        log(QString("Retourne au dépôt avec %1 vélos").arg(cargoCount));
         std::vector<Bike*> remainingBikes = stations[DEPOT_ID]->addBikes(cargo);
         cargo = remainingBikes; // Update cargo with any bikes that couldn't be added
+        log(QString("Déchargé %1 vélos au dépôt (%2 non déchargés)")
+            .arg(cargoCount - remainingBikes.size()).arg(remainingBikes.size()));
+    } else {
+        log(QString("Retourne au dépôt (cargo vide)"));
     }
 
     if (binkingInterface) {

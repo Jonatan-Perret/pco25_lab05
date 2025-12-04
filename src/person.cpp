@@ -39,6 +39,9 @@ void Person::run() {
     while(!PcoThread::thisThread()->stopRequested()){
         unsigned int bikeDestination = chooseOtherSite(currentSite);
         Bike* bike = takeBikeFromSite(currentSite);
+        if (bike == nullptr) {
+            break;
+        }
         bikeTo(bikeDestination, bike);
         depositBikeAtSite(bikeDestination, bike);
         currentSite = bikeDestination;
@@ -50,7 +53,14 @@ void Person::run() {
 
 Bike* Person::takeBikeFromSite(unsigned int _site) {
     size_t preferredType = this->preferredType;
+    log(QString("Attend un vélo de type %1 au site %2").arg(preferredType).arg(_site));
     Bike * bike = stations[_site]->getBike(preferredType);
+    if( bike == nullptr ) {
+        log(QString("Simulation arrêtée, personne %1 quitte son attente de vélo au site %2").arg(id).arg(_site));
+        return nullptr;
+    }
+    log(QString("A pris un vélo de type %1 au site %2 (%3 vélos restants)")
+        .arg(bike->bikeType).arg(_site).arg(stations[_site]->nbBikes()));
 
     if (binkingInterface) {
         binkingInterface->setBikes(_site, stations[_site]->nbBikes());
@@ -60,7 +70,10 @@ Bike* Person::takeBikeFromSite(unsigned int _site) {
 }
 
 void Person::depositBikeAtSite(unsigned int _site, Bike* _bike) {
+    log(QString("Dépose un vélo de type %1 au site %2").arg(_bike->bikeType).arg(_site));
     stations[_site]->putBike(_bike);
+    log(QString("Vélo déposé au site %1 (%2 vélos maintenant)")
+        .arg(_site).arg(stations[_site]->nbBikes()));
 
     if (binkingInterface) {
         binkingInterface->setBikes(_site, stations[_site]->nbBikes());
@@ -69,6 +82,8 @@ void Person::depositBikeAtSite(unsigned int _site, Bike* _bike) {
 
 void Person::bikeTo(unsigned int _dest, Bike* _bike) {
     unsigned int t = bikeTravelTime();
+    log(QString("Va en vélo du site %1 au site %2 (type %3)")
+        .arg(currentSite).arg(_dest).arg(_bike->bikeType));
     if (binkingInterface) {
         binkingInterface->travel(id, currentSite, _dest, t);
     }
@@ -77,6 +92,7 @@ void Person::bikeTo(unsigned int _dest, Bike* _bike) {
 
 void Person::walkTo(unsigned int _dest) {
     unsigned int t = walkTravelTime();
+    log(QString("Marche du site %1 au site %2").arg(currentSite).arg(_dest));
     if (binkingInterface) {
         binkingInterface->walk(id, currentSite, _dest, t);
     }
