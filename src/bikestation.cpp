@@ -1,6 +1,8 @@
 #include "bikestation.h"
 
-BikeStation::BikeStation(int _capacity) : capacity(_capacity) {}
+BikeStation::BikeStation(int _capacity) : capacity(_capacity) {
+    shouldEnd = false;
+}
 
 BikeStation::~BikeStation() {
     ending();
@@ -8,42 +10,81 @@ BikeStation::~BikeStation() {
 
 void BikeStation::putBike(Bike* _bike){
     mutex.lock();
-    while(nbBikes() >= nbSlots()){
+    while(nbBikes() >= nbSlots() && !shouldEnd){
         // wait until there's space
-        bikeRemoved.wait(&mutex);
+        bikeRemoved[_bike->bikeType].wait(&mutex);
     }
+
+    if (shouldEnd) {
+        mutex.unlock();
+        return;
+    }
+
     // can add bike
     bikesByType[_bike->bikeType].push_back(_bike);
 
-    bikeAdded.notifyAll();
+    bikeAdded[_bike->bikeType].notifyOne();
     mutex.unlock();
 }
 
 Bike* BikeStation::getBike(size_t _bikeType) {
     Bike* bike = nullptr;
     mutex.lock();
-    while(nbBikes() == 0){ // size_t nbBikes() can't be negative
-        // wait until there's a bike
-        bikeAdded.wait(&mutex);
+    while(bikesByType[_bikeType].empty() && !shouldEnd){
+        // wait until there's a bike of the requested type
+        bikeAdded[_bikeType].wait(&mutex);
     }
+
+    if (shouldEnd) {
+        mutex.unlock();
+        return nullptr;
+    }
+
     // can get bike
     bike = bikesByType[_bikeType].front();
     bikesByType[_bikeType].pop_front();
     
-    bikeRemoved.notifyAll();
+    bikeRemoved[_bikeType].notifyOne();
     mutex.unlock();
     return bike;
 }
 
 std::vector<Bike*> BikeStation::addBikes(std::vector<Bike*> _bikesToAdd) {
-    std::vector<Bike*> result; // Can be removed, it's just to avoid a compiler warning
-    // TODO: implement this method
+    std::vector<Bike*> result;
+    // TODO refactor with condition variables to wait if no slots are available
+    mutex.lock();
+    for(Bike* bike : _bikesToAdd){
+        if(nbBikes() < nbSlots()){
+            // can add bike
+            bikesByType[bike->bikeType].push_back(bike);
+            bikeAdded[bike->bikeType].notifyOne();
+        } else {
+            // cannot add bike, return it
+            result.push_back(bike);
+        }
+    }
+    mutex.unlock();
     return result;
 }
 
 std::vector<Bike*> BikeStation::getBikes(size_t _nbBikes) {
-    std::vector<Bike*> result; // Can be removed, it's just to avoid a compiler warning
-    // TODO: implement this method
+    
+    std::vector<Bike*> result;
+    // TODO refactor with condition variables to wait if no bikes are available
+    mutex.lock();
+    for(size_t type = 0; type < Bike::nbBikeTypes; type++){
+        while(result.size() < _nbBikes && !bikesByType[type].empty()){
+            // can get bike
+            Bike* bike = bikesByType[type].front();
+            bikesByType[type].pop_front();
+            result.push_back(bike);
+            bikeRemoved[type].notifyOne();
+        }
+        if(result.size() >= _nbBikes){
+            break;
+        }
+    }
+    mutex.unlock();
     return result;
 }
 
@@ -64,5 +105,7 @@ size_t BikeStation::nbSlots() {
 }
 
 void BikeStation::ending() {
-   // TODO: implement this method
+    mutex.lock();
+    shouldEnd = true;
+    mutex.unlock();
 }

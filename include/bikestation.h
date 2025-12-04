@@ -127,11 +127,13 @@ private:
     /**
      * @brief Condition variable signaled when a bike is added.
      */
-    PcoConditionVariable bikeAdded;
+    std::array<PcoConditionVariable, Bike::nbBikeTypes> bikeAdded;
     /**
      * @brief Condition variable signaled when a bike is removed.
      */
-    PcoConditionVariable bikeRemoved;
+    std::array<PcoConditionVariable, Bike::nbBikeTypes> bikeRemoved;
+
+    bool shouldEnd = false; /**< Flag indicating if the station is ending. */
 };
 
 #endif // BIKESTATION_H

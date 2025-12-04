@@ -50,6 +50,9 @@ void Van::loadAtDepot() {
     driveTo(DEPOT_ID);
 
     // TODO: implement this method. If possible, load at least 2 bikes
+    cargo.clear();
+    std::vector<Bike*> loadedBikes = stations[DEPOT_ID]->getBikes(2);
+    cargo.insert(cargo.end(), loadedBikes.begin(), loadedBikes.end());
 
     if (binkingInterface) {
         binkingInterface->setBikes(DEPOT_ID, stations[DEPOT_ID]->nbBikes());
@@ -59,7 +62,24 @@ void Van::loadAtDepot() {
 
 void Van::balanceSite(unsigned int _site)
 {
-    // TODO: implement this method
+    // TODO: implement this method. Balance the number of bikes at the given site
+    size_t targetBikes = BORNES - 2;
+    size_t currentBikes = stations[_site]->nbBikes();
+    if (currentBikes > targetBikes && cargo.size() < VAN_CAPACITY) {
+        // Take bikes from site
+        size_t bikesToTake = currentBikes - targetBikes;
+        std::vector<Bike*> takenBikes = stations[_site]->getBikes(bikesToTake);
+        cargo.insert(cargo.end(), takenBikes.begin(), takenBikes.end());
+    } else if (currentBikes < targetBikes && !cargo.empty()) {
+        // Drop bikes to site
+        size_t bikesToDrop = targetBikes - currentBikes;
+        std::vector<Bike*> bikesToAdd;
+        for (size_t i = 0; i < bikesToDrop && !cargo.empty(); ++i) {
+            bikesToAdd.push_back(cargo.back());
+            cargo.pop_back();
+        }
+        stations[_site]->addBikes(bikesToAdd);
+    }
     if (binkingInterface) {
         binkingInterface->setBikes(DEPOT_ID, stations[DEPOT_ID]->nbBikes()); // Keep somewhere for GUI
     }
@@ -71,6 +91,10 @@ void Van::returnToDepot() {
     size_t cargoCount = cargo.size();
 
     // TODO: implement this method. If the van carries bikes, then leave them
+    if (!cargo.empty()) {
+        std::vector<Bike*> remainingBikes = stations[DEPOT_ID]->addBikes(cargo);
+        cargo = remainingBikes; // Update cargo with any bikes that couldn't be added
+    }
 
     if (binkingInterface) {
         binkingInterface->setBikes(DEPOT_ID, stations[DEPOT_ID]->nbBikes());
