@@ -1,203 +1,195 @@
-# Laboratoire 05 - Système de Partage de Vélos
+# Laboratoire PCO - Gestion de ressources par moniteurs
 
-**Auteurs :** Perret Jonatan et Marcuard Adrien
-**Date :** 8 décembre 2025
+**Auteurs :** Perret Jonatan et Marcuard Adrien  
+**Date :** 8 décembre 2025  
+**Cours :** Programmation Concurrente - Semestre automne 2025
 
 ## Introduction au problème
 
-Ce laboratoire simule un système de partage de vélos dans une ville comportant plusieurs sites équipés de bornes. Le système doit gérer de manière synchronisée les actions de plusieurs acteurs concurrents :
+Ce laboratoire simule un système de partage de vélos dans une ville où des citadins se déplacent entre plusieurs sites équipés de bornes. Le système doit gérer de manière synchronisée les actions de plusieurs acteurs concurrents en utilisant des **moniteurs de Mesa**.
 
-- **Des usagers (Person)** : Ils empruntent un vélo à un site, se déplacent vers un autre site pour le déposer, puis marchent vers un autre site pour recommencer le cycle. Chaque usager a une préférence pour un type de vélo spécifique (VTT, Route ou Gravel).
+### Acteurs du système
 
-- **Une camionnette de redistribution (Van)** : Elle effectue des tournées régulières pour équilibrer le nombre de vélos entre les sites et le dépôt central. Elle charge des vélos au dépôt, visite chaque site pour retirer les vélos en surplus ou déposer des vélos manquants, puis retourne au dépôt.
+**Les habitants (Person)** : Chaque habitant suit un cycle répétitif :
+1. Attend qu'un vélo de son type préféré devienne disponible au site courant et le prend
+2. Se déplace en vélo vers un autre site choisi aléatoirement
+3. Attend qu'une borne devienne libre au site de destination et y dépose son vélo
+4. Se déplace à pied vers un autre site
+5. Recommence le cycle
 
-- **Des stations de vélos (BikeStation)** : Chaque site possède une capacité limitée de bornes (par défaut 6). Les stations doivent gérer l'accès concurrent des usagers et de la camionnette.
+Chaque habitant a une préférence pour un type de vélo spécifique (VTT, Route ou Gravel) définie à sa construction et n'utilise que ce type.
 
-Le défi principal est d'assurer la synchronisation correcte entre tous ces acteurs pour éviter les interblocages (deadlocks), les conditions de course (race conditions) et garantir un partage équitable des ressources. Le système comporte 3 types de vélos différents, 8 sites utilisateurs, 1 dépôt, 10 usagers et 35 vélos au total.
+**L'équipe de maintenance (Van)** : Une camionnette effectue des tournées régulières pour rééquilibrer les vélos entre les sites et le dépôt. Elle peut transporter jusqu'à 4 vélos simultanément et priorise les types manquants lors des dépôts.
+
+**Les stations (BikeStation)** : Chaque site possède un nombre fixe de bornes (B = 6 par défaut). Les stations doivent gérer l'accès concurrent des habitants et de la camionnette de manière thread-safe.
+
+### Contraintes et paramètres
+
+- **Nombre de sites** : S = 8 sites + 1 dépôt (NB_SITES_TOTAL = 9)
+- **Bornes par site** : B = 6 (BORNES)
+- **Nombre d'habitants** : 10 personnes (NBPEOPLE)
+- **Vélos totaux** : V = 35, vérifiant V ≥ S(B-2) + 3 = 8×4 + 3 = 35
+- **Capacité camionnette** : 4 vélos (VAN_CAPACITY)
+- **Types de vélos** : 3 types (VTT, Route, Gravel)
+
+Initialement, chaque site contient B-2 = 4 vélos, et le reste (3 vélos) est au dépôt.
+
+### Problèmes de concurrence à résoudre
+
+1. **Accès concurrent aux stations** : Plusieurs habitants et la camionnette peuvent vouloir accéder simultanément à une même station
+2. **Gestion de la capacité** : Respecter le nombre maximum de bornes sans dépassement
+3. **Ordre d'attente (FIFO)** : Les habitants doivent être servis selon leur ordre d'arrivée pour un type de vélo donné
+4. **Éviter les interblocages** : Garantir qu'aucune situation de deadlock ne peut survenir
+5. **Terminaison propre** : Pouvoir arrêter la simulation sans laisser de threads bloqués
 
 ## Choix d'implémentation
 
-### Architecture générale de synchronisation
+### Modélisation par moniteur de Mesa
 
-La synchronisation du système repose sur la classe **BikeStation** qui implémente un moniteur thread-safe utilisant des mutex et des variables de condition. Chaque station stocke les vélos dans des deques séparées par type, permettant une gestion FIFO pour chaque catégorie.
+La classe **BikeStation** implémente un moniteur de Mesa qui centralise toute la synchronisation. Chaque station protège ses ressources (vélos et bornes) par un mutex unique et utilise des variables de condition pour gérer les attentes.
+
+### Séparation des vélos par type - Optimisation clé
+
+**Choix structurel** : L'utilisation d'un tableau de deques (`std::array<std::deque<Bike*>, Bike::nbBikeTypes>`) plutôt qu'une unique file commune est un choix d'implémentation fondamental.
+
+**Justification** :
+
+1. **Ordre FIFO par type garanti** : Conformément au cahier des charges, lorsque plusieurs habitants attendent le même type de vélo, ils doivent être servis selon leur ordre d'arrivée. En séparant les vélos par type et en utilisant des deques (FIFO), on garantit naturellement cette propriété.
+
+2. **Notifications ciblées avec `notifyOne()`** : En associant une variable de condition par type (`bikeAdded[type]`, `bikeRemoved[type]`), on peut utiliser `notifyOne()` au lieu de `notifyAll()`. Lorsqu'un vélo de type VTT est ajouté, seul un habitant attendant un VTT est réveillé, et non tous les habitants.
+
+3. **Éviter les réveils inutiles** : Sans cette séparation, avec un `notifyAll()` global, chaque ajout de vélo réveillerait potentiellement 10 threads dont 9 se rendormiraient immédiatement après avoir constaté que ce n'est pas le bon type. Cela génèrerait des changements de contexte coûteux et dégraderait les performances.
+
+4. **Respect du moniteur de Mesa** : La structure avec variables de condition par type permet d'implémenter correctement le pattern de Mesa avec des boucles `while` et des attentes ciblées.
 
 ### Mécanisme de protection des ressources critiques
 
-Un mutex unique protège l'ensemble des données d'une station (nombre de vélos, contenus des deques). Toute opération de lecture ou modification des vélos doit acquérir ce mutex. Cette approche garantit la cohérence des données mais nécessite une attention particulière pour éviter les interblocages.
+**Mutex unique** : Un seul `PcoMutex` protège l'ensemble des données d'une station (vélos stockés, compteurs). Toute opération de lecture ou modification acquiert ce mutex, garantissant l'exclusion mutuelle.
 
-### Variables de condition pour l'attente active
+**Sections critiques** : Les méthodes `putBike()` et `getBike()` suivent le schéma classique du moniteur de Mesa :
+```
+mutex.lock()
+while (condition non satisfaite && !shouldEnd)
+    conditionVariable.wait(&mutex)
+if (shouldEnd) 
+    return
+// section critique
+conditionVariable.notifyOne()
+mutex.unlock()
+```
 
-Le système utilise deux types de variables de condition par type de vélo :
+Ce schéma évite les attentes actives (busy-wait) : les threads se bloquent dans `wait()` sans consommer de CPU.
 
-1. **bikeAdded** : Signale l'ajout d'un vélo d'un type donné. Les usagers en attente d'un type spécifique s'y bloquent.
-2. **bikeRemoved** : Signale le retrait d'un vélo, libérant potentiellement une borne. Les usagers souhaitant déposer un vélo s'y bloquent lorsque la station est pleine.
+### Variables de condition pour l'attente bloquante
 
-Cette séparation par type permet de réveiller uniquement les threads concernés par un changement particulier, optimisant l'efficacité du système.
+Le système utilise deux vecteurs de variables de condition (`std::vector<PcoConditionVariable>`) **par type de vélo** pour permettre aux threads de s'endormir (attente passive) plutôt que de tourner en boucle (attente active) :
 
-### Gestion de la capacité des stations
+1. **bikeAdded[type]** : Signale l'ajout d'un vélo d'un type donné. Seuls les usagers en attente de ce type spécifique s'y bloquent.
+2. **bikeRemoved[type]** : Signale le retrait d'un vélo d'un type donné, libérant potentiellement une borne. Les usagers souhaitant déposer un vélo de ce type s'y bloquent lorsque la station est pleine.
 
-La méthode **putBike** vérifie d'abord si la station est pleine. Si c'est le cas, le thread appelant se bloque sur la variable de condition correspondant au type de vélo qu'il souhaite déposer. Lorsqu'un vélo est retiré, la variable appropriée est notifiée, permettant à un thread en attente de se réveiller et de tenter à nouveau l'insertion.
+Chaque vecteur est initialisé avec `Bike::nbBikeTypes` éléments (3 types), offrant ainsi une granularité fine (3 types × 2 conditions = 6 variables de condition par station). Cette structure permet une synchronisation efficace avec des notifications ciblées plutôt que des réveils massifs. Les threads bloqués ne consomment aucun CPU et sont réveillés uniquement lorsque leur condition spécifique change.
 
-Inversement, **getBike** attend qu'un vélo du type demandé soit disponible. Cette attente est spécifique au type, ce qui permet aux usagers de n'attendre que leur type préféré sans être réveillés inutilement par l'ajout d'autres types.
+### Gestion de la capacité et des attentes
+
+**putBike()** : Lorsqu'un habitant veut déposer un vélo sur un site plein (nbBikes() ≥ BORNES), il se bloque sur `bikeRemoved[bikeType]` jusqu'à ce qu'une borne se libère. La notification est faite par `getBike()` ou `getBikes()` lors du retrait d'un vélo.
+
+**getBike()** : Lorsqu'un habitant attend un vélo d'un type spécifique non disponible, il se bloque sur `bikeAdded[bikeType]` jusqu'à ce qu'un vélo de ce type soit déposé. La notification est faite par `putBike()` ou `addBikes()`.
+
+**Ordre FIFO** : Les variables de condition PcoCOnditionVariable garantissent que les threads bloqués sont réveillés dans leur ordre d'arrivée sur chaque variable, respectant ainsi l'exigence de l'énoncé.
+
+**Éviter les interblocages** : 
+- Chaque thread n'acquiert qu'un seul mutex à la fois (celui de la station courante)
+- Les habitants se déplacent séquentiellement : prendre vélo → déposer vélo → marcher
+- La camionnette ne bloque jamais (getBikes/addBikes non-bloquants)
+- Pas de cycles de dépendances possibles
 
 ### Algorithme de la camionnette
 
-La camionnette suit un cycle prédictible :
-1. Charge jusqu'à 4 vélos au dépôt
-2. Visite séquentiellement chaque site
-3. À chaque site, évalue le nombre de vélos présents
-4. Si le site a plus de 4 vélos (seuil = BORNES - 2 = 4), elle retire les excédents
-5. Si le site a moins de 4 vélos, elle dépose des vélos en prioritisant les types manquants
-6. Retourne au dépôt pour décharger les vélos restants
+La camionnette suit l'algorithme suivant pour équilibrer les vélos entre les sites :
 
-Cette stratégie de rééquilibrage vise à maintenir chaque site proche du seuil de 4 vélos tout en assurant une diversité de types disponibles.
+**Étape 1 : Chargement initial au dépôt**
+- Charge `a = min(2, D)` vélos, où `D` est le nombre de vélos disponibles au dépôt
+- Cela garantit un chargement minimal sans vider le dépôt
 
-### Opérations par lot (addBikes et getBikes)
+**Étape 2 : Visite de chaque site (i = 0 à 7)**
 
-Pour optimiser les opérations de la camionnette, deux méthodes permettent de manipuler plusieurs vélos à la fois :
+Pour chaque site `i`, soit `Vi` le nombre de vélos présents et `B = 6` le nombre de bornes :
 
-- **getBikes** : Retire jusqu'à N vélos en parcourant les types dans l'ordre et en appliquant FIFO au sein de chaque type. Cette méthode ne bloque pas ; elle retourne simplement les vélos disponibles.
+- **Cas 2a : Site surchargé (`Vi > B-2`, donc > 4 vélos)**
+  - Prendre `c = min(Vi - (B-2), 4 - a)` vélos du site
+  - Limite : ne prend que si la camionnette a de la place (capacité max = 4)
+  - Met à jour : `a ← a + c`
 
-- **addBikes** : Tente d'ajouter un vecteur de vélos. Les vélos qui ne peuvent pas être ajoutés (station pleine) sont retournés dans le vecteur résultat. Actuellement implémentée sans attente, ce qui est approprié pour la camionnette qui ne doit pas se bloquer indéfiniment.
+- **Cas 2b : Site sous-chargé (`Vi < B-2`, donc < 4 vélos)**
+  - Calculer `c = min((B-2) - Vi, a)` vélos à déposer
+  - **Priorité aux types manquants** : pour chaque type de vélo `t`
+    - Si le site n'a aucun vélo de type `t` ET la camionnette en a au moins un
+    - Déposer un vélo de type `t` au site
+    - Incrémenter le compteur de dépôts
+  - **Compléter avec n'importe quel type** : tant que moins de `c` vélos ont été déposés et que la camionnette n'est pas vide
+    - Déposer un vélo quelconque pour atteindre le seuil
+
+**Étape 3 : Retour au dépôt**
+- Vider complètement la camionnette : `D ← D + a, a ← 0`
+- Tous les vélos restants sont déposés au dépôt
+
+**Étape 4 : Pause**
+- Le temps de déplacement entre sites constitue la pause naturelle
+
+**Objectif de l'algorithme** : Maintenir chaque site autour du seuil de 4 vélos (B-2) tout en assurant une diversité de types, grâce à une capacité de camionnette limitée (4 vélos) et un chargement minimal initial (2 vélos).
+
+### Opérations par lot pour la camionnette
+
+Pour éviter que la camionnette ne se bloque indéfiniment, les méthodes **getBikes()** et **addBikes()** sont non-bloquantes :
+
+**getBikes(n)** : 
+- Retire jusqu'à `n` vélos disponibles immédiatement
+- Parcourt les types dans l'ordre (0, 1, 2) en appliquant FIFO par type
+- Retourne ce qui est disponible, même si moins de `n` vélos
+- Notifie `bikeRemoved[type]` pour chaque vélo retiré
+
+**addBikes(vector)** :
+- Tente d'ajouter chaque vélo du vecteur
+- Si la station est pleine, le vélo est retourné dans le vecteur résultat
+- Notifie `bikeAdded[type]` pour chaque vélo ajouté avec succès
+- Ne bloque jamais, respectant le comportement attendu de la camionnette
+
+Cette approche permet à la camionnette de continuer sa tournée même si un site refuse temporairement des vélos (plein) ou n'a pas assez de vélos à retirer.
 
 ### Terminaison propre du système
 
-La méthode **ending** permet d'arrêter gracieusement le système. Elle positionne un flag **shouldEnd** et réveille tous les threads en attente sur toutes les variables de condition. Chaque méthode bloquante vérifie ce flag et retourne immédiatement (avec nullptr pour getBike) si la terminaison est demandée. Cela évite que des threads restent bloqués indéfiniment lors de l'arrêt de l'application.
+Conformément au cahier des charges, la méthode **ending()** permet d'arrêter proprement la simulation :
 
-### Comportement des usagers
+**Mécanisme** :
+1. Positionne le flag `shouldEnd = true` sous protection du mutex
+2. Notifie (`notifyAll()`) toutes les variables de condition pour tous les types
+3. Les threads bloqués dans `getBike()` ou `putBike()` se réveillent
+4. Détectent le flag `shouldEnd` et sortent proprement sans bloquer
 
-Chaque usager possède une préférence de type de vélo définie aléatoirement à la construction. Il suit un cycle simple :
-1. Attend et prend un vélo de son type préféré au site courant
-2. Se déplace en vélo vers un autre site choisi aléatoirement
-3. Dépose le vélo au site de destination
-4. Marche vers un nouveau site aléatoire
-5. Recommence le cycle
+**Dans Person::run()** : La boucle vérifie `PcoThread::thisThread()->stopRequested()` et `getBike()` retourne `nullptr` si la simulation est arrêtée.
 
-Le choix d'attendre uniquement son type préféré peut potentiellement créer des déséquilibres si la distribution des préférences n'est pas uniforme, mais reflète un comportement réaliste d'utilisateurs ayant des préférences marquées.
+**Dans Van::run()** : Même vérification du flag d'arrêt.
+
+**Résultat** : Aucun thread ne reste bloqué indéfiniment dans les variables de condition lors de l'arrêt. La simulation se termine proprement en quelques secondes, même si des habitants ou la camionnette étaient en attente.
+
+### Comportement des habitants (Person)
+
+Chaque habitant exécute la boucle spécifiée dans l'énoncé :
+
+1. **Attente et prise d'un vélo** : Appel à `getBike(preferredType)` qui bloque si aucun vélo du type préféré n'est disponible
+2. **Déplacement en vélo** : `bikeTo(destination)` avec temps aléatoire, vers un site j ≠ i choisi aléatoirement
+3. **Dépôt du vélo** : Appel à `putBike(bike)` qui bloque si le site de destination est saturé (6 vélos)
+4. **Déplacement à pied** : `walkTo(destination)` vers un autre site k avec temps aléatoire plus long
+5. **Mise à jour** : Le site courant devient k, la boucle recommence
+
+**Préférence de type** : Définie aléatoirement dans le constructeur (VTT, Route ou Gravel), chaque habitant n'utilise que son type préféré.
+
+**Interface graphique** : Chaque action met à jour l'affichage via `binkingInterface->setBikes()` et envoie des logs à la console.
 
 ## Tests effectués
 
-### Test de fonctionnement normal
-
-**Objectif** : Vérifier que le système fonctionne correctement avec les paramètres par défaut (8 sites, 10 usagers, 35 vélos, 3 types).
-
-**Procédure** : Lancer l'application et observer pendant plusieurs minutes le comportement des usagers et de la camionnette.
-
-**Résultats attendus** : 
-- Les usagers doivent pouvoir emprunter et déposer des vélos sans blocage
-- La camionnette doit effectuer ses tournées régulièrement
-- Les compteurs de vélos aux différents sites doivent fluctuer de manière cohérente
-- Aucun site ne doit rester définitivement vide ou plein
-
-### Test de saturation des sites
-
-**Objectif** : Vérifier le comportement lorsque plusieurs usagers tentent de déposer des vélos simultanément sur un site saturé.
-
-**Procédure** : Observer particulièrement les sites ayant 6 vélos (capacité maximale). Vérifier que les usagers se bloquent correctement en attente d'une borne libre.
-
-**Points de vigilance** :
-- Les usagers doivent se débloquer lorsque la camionnette ou un autre usager retire un vélo
-- Aucun dépassement de capacité ne doit survenir
-- Les notifications doivent réveiller les bons threads
-
-### Test de pénurie de vélos
-
-**Objectif** : Observer le comportement quand un ou plusieurs types de vélos deviennent rares.
-
-**Procédure** : Observer les situations où un site ne possède aucun vélo d'un type spécifique recherché par un usager.
-
-**Résultats attendus** :
-- L'usager concerné doit se bloquer en attente
-- La camionnette devrait éventuellement amener un vélo du type manquant
-- L'ordre FIFO des attentes doit être respecté
-
-### Test de terminaison propre
-
-**Objectif** : Vérifier que l'arrêt de l'application libère correctement tous les threads sans blocage.
-
-**Procédure** : Fermer l'application ou interrompre l'exécution (Ctrl+C dans le terminal).
-
-**Résultats attendus** :
-- Tous les threads doivent se terminer rapidement
-- Aucun thread ne doit rester bloqué indéfiniment
-- Aucune fuite de mémoire (tous les vélos doivent être correctement libérés)
-
-### Test de cohérence des données
-
-**Objectif** : Vérifier que le nombre total de vélos reste constant dans le système.
-
-**Procédure** : Additionner régulièrement le nombre de vélos dans tous les sites, le dépôt et les cargos (usagers en déplacement + camionnette).
-
-**Résultat attendu** : Le total doit toujours être égal à NB_BIKES (35 vélos).
-
-### Test de non-interblocage avec la camionnette
-
-**Objectif** : S'assurer qu'aucun interblocage ne survient entre les usagers et la camionnette.
-
-**Procédure** : Observer le système pendant une période prolongée (>10 minutes) en surveillant tout arrêt suspect de l'activité.
-
-**Points critiques** :
-- La camionnette et les usagers accèdent aux mêmes stations
-- L'ordre d'acquisition des verrous doit être cohérent
-- Les opérations par lot de la camionnette ne doivent pas monopoliser les ressources
-
-### Tests de cas limites
-
-**Cas à tester** :
-1. **Tous les usagers préfèrent le même type** : Modifier temporairement le code pour forcer une préférence unique et observer la répartition
-2. **Capacité minimale** : Réduire BORNES à 2 ou 3 pour augmenter la contention
-3. **Nombre d'usagers élevé** : Augmenter NBPEOPLE à 20 ou 30 pour stresser le système
-4. **Vélos en nombre limité** : Réduire NB_BIKES pour créer davantage de situations de pénurie
-
-## Éléments manquants ou améliorations possibles
-
-**IMPORTANT** : Voici les points qui pourraient nécessiter votre attention :
-
-### 1. Statistiques et métriques
-Il manque des mécanismes de mesure pour évaluer quantitativement les performances :
-- Temps d'attente moyen des usagers
-- Taux d'utilisation des vélos
-- Nombre de déplacements effectués
-- Efficacité de la redistribution par la camionnette
-
-### 2. Tests automatisés
-Le rapport ne mentionne pas de tests unitaires ou d'intégration automatisés. Il serait utile d'ajouter :
-- Des tests vérifiant les invariants du système
-- Des tests de charge automatiques
-- Des assertions pour détecter les violations de cohérence
-
-### 3. Stratégie de priorité
-L'implémentation actuelle traite tous les usagers de manière équitable (FIFO), mais on pourrait envisager :
-- Des mécanismes anti-famine plus sophistiqués
-- Une priorité pour les usagers ayant attendu longtemps
-- Une optimisation de la stratégie de la camionnette basée sur les statistiques d'utilisation
-
-### 4. Gestion des préférences des usagers
-Le système actuel force les usagers à attendre uniquement leur type préféré. Une amélioration pourrait être :
-- Permettre un second choix après un certain délai d'attente
-- Adapter dynamiquement les préférences selon la disponibilité
-
-### 5. Documentation des scénarios de test
-Le rapport devrait idéalement inclure :
-- Des captures d'écran ou logs de l'interface pour illustrer les différents états testés
-- Des tableaux récapitulatifs des résultats de tests
-- Une matrice de traçabilité entre les exigences et les tests
-
-### 6. Analyse des risques d'interblocage
-Une analyse formelle pourrait être ajoutée :
-- Graphe d'attente des ressources
-- Preuve de l'absence de cycles dans les dépendances
-- Démonstration que les 4 conditions de Coffman ne sont pas toutes réunies
-
-### 7. Point d'attention dans l'implémentation actuelle
-
-Dans le code fourni, il y a des commentaires TODO dans les méthodes **addBikes** et **getBikes** suggérant qu'elles pourraient être améliorées avec des variables de condition pour attendre si nécessaire. Actuellement, ces méthodes ne bloquent pas, ce qui est approprié pour la camionnette mais pourrait être limitant dans d'autres contextes d'utilisation.
-
----
-
-**N'oubliez pas de :**
-- Compléter vos noms d'auteurs en haut du document
-- Convertir ce fichier en PDF nommé `rapport.pdf`
-- Relire et vérifier la cohérence entre votre implémentation et les descriptions du rapport
-- Ajouter vos propres observations et résultats de tests concrets avec des données chiffrées
-- Documenter tout problème rencontré et résolu durant le développement
+La simulation, étant une application Qt avec interface graphique, a été testée à la main en observant le comportement des habitants et de la camionnette. Cette methode n'est pas très rigoureuse mais permet de vérifier visuellement que :
+- Les habitants prennent et déposent des vélos correctement
+- La camionnette rééquilibre les sites comme prévu
+- Aucun thread ne reste bloqué indéfiniment
+- La terminaison propre fonctionne sans deadlocks

@@ -64,11 +64,15 @@ void Van::loadAtDepot()
 {
     driveTo(DEPOT_ID);
 
-    // TODO: implement this method. If possible, load at least 2 bikes
     cargo.clear();
     log(QString("Charge des vélos au dépôt"));
-    std::vector<Bike *> loadedBikes = stations[DEPOT_ID]->getBikes(VAN_CAPACITY);
+    
+    // Charger a = min(2, D) vélos où D est le nombre de vélos au dépôt
+    size_t depotBikes = stations[DEPOT_ID]->nbBikes();
+    size_t bikesToLoad = std::min(size_t(2), depotBikes);
+    std::vector<Bike *> loadedBikes = stations[DEPOT_ID]->getBikes(bikesToLoad);
     cargo.insert(cargo.end(), loadedBikes.begin(), loadedBikes.end());
+    
     log(QString("Chargé %1 vélos (dépôt: %2 vélos restants)")
             .arg(loadedBikes.size())
             .arg(stations[DEPOT_ID]->nbBikes()));
@@ -81,62 +85,48 @@ void Van::loadAtDepot()
 
 void Van::balanceSite(unsigned int _site)
 {
-    /*
-    Boucle infinie
-        1. Mettre a = min(2, D) vélos dans la camionnette.
-        2. Pour i = 1 à S faire
-        2a. Si Vi > B−2 alors
-        Prendre c = min Vi−(B−2), 4−a vélos du site i et les mettre dans la camionnette.
-        a ←a + c.
-        2b. Si Vi < B−2 alors
-        Calculer c = min (B−2)−Vi, a (nombre de vélos à déposer au site i).
-        Initialiser cdéposés ←0.
-        Pour chaque type de vélo t
-        Si le site i ne contient aucun vélo de type t
-        et la camionnette contient au moins un vélo de type t alors
-        Déplacer un vélo de type t de la camionnette vers le site i.
-        a ←a−1, Vi ←Vi + 1, cdéposés ←cdéposés + 1.
-        Si cdéposés= c alors sortir de la boucle sur les types.
-        Tant que cdéposés < c et a > 0 faire
-        Déplacer un vélo quelconque de la camionnette vers le site i.
-        a ←a−1, Vi ←Vi + 1, cdéposés ←cdéposés + 1.
-        3. Vider la camionnette au dépôt : D ←D + a, a ←0.
-        4. Faire une pause.
-    Fin de la boucle
-        */
-    size_t currentBikeCount = stations[_site]->nbBikes();
-    size_t threshold = BORNES - 2;
-    size_t cargoSpace = VAN_CAPACITY - cargo.size();
+    size_t Vi = stations[_site]->nbBikes();  // Number of bikes at site i
+    size_t threshold = BORNES - 2;           // B-2 (target threshold)
+    size_t a = cargo.size();                 // Number of bikes in the van
 
-    log(QString("Van at site %1: %2 bikes (target: %3), cargo: %4")
+    log(QString("Van at site %1: %2 bikes (threshold: %3), cargo: %4")
             .arg(_site)
-            .arg(currentBikeCount)
+            .arg(Vi)
             .arg(threshold)
-            .arg(cargo.size()));
+            .arg(a));
 
-    // Site has too many bikes - take some
-    if (currentBikeCount > threshold && cargoSpace > 0)
+    // 2a. If Vi > B-2 then take bikes
+    if (Vi > threshold)
     {
-        size_t toTake = std::min(currentBikeCount - threshold, cargoSpace);
-        std::vector<Bike *> taken = stations[_site]->getBikes(toTake);
-        cargo.insert(cargo.end(), taken.begin(), taken.end());
+        // c = min(Vi-(B-2), 4-a) bikes to take
+        size_t cargoSpace = VAN_CAPACITY - a;
+        size_t c = std::min(Vi - threshold, cargoSpace);
+        
+        if (c > 0)
+        {
+            std::vector<Bike *> taken = stations[_site]->getBikes(c);
+            cargo.insert(cargo.end(), taken.begin(), taken.end());
+            
+            log(QString("Takes %1 bike(s) from site %2 (surplus)")
+                    .arg(taken.size())
+                    .arg(_site));
 
-        log(QString("Van takes %1 bike(s) from site %2.")
-                .arg(taken.size())
-                .arg(_site));
-
-        if (binkingInterface)
-            binkingInterface->setBikes(_site, stations[_site]->nbBikes());
+            if (binkingInterface)
+                binkingInterface->setBikes(_site, stations[_site]->nbBikes());
+        }
     }
-    // Site has too few bikes - deposit some
-    else if (currentBikeCount < threshold && !cargo.empty())
+    // 2b. If Vi < B-2 then deposit bikes
+    else if (Vi < threshold && a > 0)
     {
-        size_t toDeposit = std::min(threshold - currentBikeCount, cargo.size());
+        // c = min((B-2)-Vi, a) number of bikes to deposit
+        size_t c = std::min(threshold - Vi, a);
         size_t deposited = 0;
 
-        // First, deposit missing bike types
-        for (size_t type = 0; type < Bike::nbBikeTypes && deposited < toDeposit; ++type)
+        // First pass: deposit bikes of completely missing types
+        for (size_t type = 0; type < Bike::nbBikeTypes && deposited < c; ++type)
         {
+            // If site i contains no bikes of type t
+            // and the van contains at least one bike of type t
             if (stations[_site]->countBikesOfType(type) == 0)
             {
                 Bike *bike = takeBikeFromCargo(type);
@@ -144,21 +134,21 @@ void Van::balanceSite(unsigned int _site)
                 {
                     stations[_site]->putBike(bike);
                     deposited++;
-                    log(QString("Van deposits missing type %1 at site %2.")
+                    log(QString("Deposits bike type %1 (missing) at site %2")
                             .arg(type)
                             .arg(_site));
                 }
             }
         }
 
-        // Then, deposit remaining bikes as needed
-        while (deposited < toDeposit && !cargo.empty())
+        // While deposited < c and cargo not empty, deposit any bikes
+        while (deposited < c && !cargo.empty())
         {
             Bike *bike = cargo.back();
             cargo.pop_back();
             stations[_site]->putBike(bike);
             deposited++;
-            log(QString("Van deposits bike type %1 at site %2.")
+            log(QString("Deposits bike type %1 at site %2")
                     .arg(bike->bikeType)
                     .arg(_site));
         }
@@ -172,21 +162,29 @@ void Van::returnToDepot()
 {
     driveTo(DEPOT_ID);
 
-    size_t cargoCount = cargo.size();
+    size_t a = cargo.size();
 
-    // TODO: implement this method. If the van carries bikes, then leave them
-    if (!cargo.empty())
+    // 3. Vider la camionnette au dépôt : D ← D + a, a ← 0
+    if (a > 0)
     {
-        log(QString("Retourne au dépôt avec %1 vélos").arg(cargoCount));
+        log(QString("Retourne au dépôt avec %1 vélos").arg(a));
         std::vector<Bike *> remainingBikes = stations[DEPOT_ID]->addBikes(cargo);
-        cargo = remainingBikes; // Update cargo with any bikes that couldn't be added
-        log(QString("Déchargé %1 vélos au dépôt (%2 non déchargés)")
-                .arg(cargoCount - remainingBikes.size())
-                .arg(remainingBikes.size()));
+        cargo = remainingBikes;
+        
+        if (remainingBikes.empty())
+        {
+            log(QString("Déchargé %1 vélos au dépôt (a=0)").arg(a));
+        }
+        else
+        {
+            log(QString("Déchargé %1 vélos au dépôt (%2 non déchargés - dépôt plein)")
+                    .arg(a - remainingBikes.size())
+                    .arg(remainingBikes.size()));
+        }
     }
     else
     {
-        log(QString("Retourne au dépôt (cargo vide)"));
+        log(QString("Retourne au dépôt (cargo vide, a=0)"));
     }
 
     if (binkingInterface)
