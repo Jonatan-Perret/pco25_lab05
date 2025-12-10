@@ -1,3 +1,8 @@
+/*
+    * person.cpp
+    * Author: Jonatan Perret and Adrien Marcuard
+*/
+
 #include "person.h"
 #include "bike.h"
 #include <random>

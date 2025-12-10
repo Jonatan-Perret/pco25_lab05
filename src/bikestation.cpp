@@ -1,3 +1,8 @@
+/*
+    * bikestation.cpp
+    * Author: Jonatan Perret and Adrien Marcuard
+*/
+
 #include "bikestation.h"
 #include <pcosynchro/pcologger.h>
 

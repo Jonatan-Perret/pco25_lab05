@@ -1,3 +1,8 @@
+/*
+    * van.cpp
+    * Author: Jonatan Perret and Adrien Marcuard
+*/
+
 #include "van.h"
 
 BikingInterface *Van::binkingInterface = nullptr;
@@ -13,6 +18,8 @@ void Van::run()
 {
     while (!PcoThread::thisThread()->stopRequested())
     {
+        // wait for some time before starting next round
+        PcoThread::thisThread()->usleep(VAN_DEPOT_WAITIME);
         loadAtDepot();
         for (unsigned int s = 0; s < NBSITES; ++s)
         {

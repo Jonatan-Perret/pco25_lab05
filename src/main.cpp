@@ -8,6 +8,11 @@
   mais vous y trouvez des exemples d'appels de fonctions de l'interface.
   ****************************************************************************/
 
+/*
+    * main.cpp
+    * Author: Jonatan Perret and Adrien Marcuard
+*/
+
 #include <QApplication>
 #include "bikinginterface.h"
 #include <cstdlib>

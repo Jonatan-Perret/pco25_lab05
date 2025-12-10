@@ -1,3 +1,8 @@
+/*
+    * van.h
+    * Author: Jonatan Perret and Adrien Marcuard
+*/
+
 #ifndef VAN_H
 #define VAN_H
 
@@ -7,6 +12,8 @@
 #include "bikestation.h"
 #include "bikinginterface.h"
 #include "pcosynchro/pcothread.h"
+
+#define VAN_DEPOT_WAITIME 1000000 // microseconds to wait at depot
 
 /**
  * @brief Simulates the van that rebalances bikes between sites and the depot.

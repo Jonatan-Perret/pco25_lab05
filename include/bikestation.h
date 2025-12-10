@@ -1,3 +1,8 @@
+/*
+    * bikestation.h
+    * Author: Jonatan Perret and Adrien Marcuard
+*/
+
 #ifndef BIKESTATION_H
 #define BIKESTATION_H
 

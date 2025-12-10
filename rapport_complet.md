@@ -133,8 +133,8 @@ Pour chaque site `i`, soit `Vi` le nombre de vélos présents et `B = 6` le nomb
 - Vider complètement la camionnette : `D ← D + a, a ← 0`
 - Tous les vélos restants sont déposés au dépôt
 
-**Étape 4 : Pause**
-- Le temps de déplacement entre sites constitue la pause naturelle
+**Étape 4 : Pause au dépôt**
+- Temps d'attente au dépôt : 1 000 000 microsecondes (1 seconde) défini par `VAN_DEPOT_WAITIME`
 
 **Objectif de l'algorithme** : Maintenir chaque site autour du seuil de 4 vélos (B-2) tout en assurant une diversité de types, grâce à une capacité de camionnette limitée (4 vélos) et un chargement minimal initial (2 vélos).
 
@@ -193,3 +193,7 @@ La simulation, étant une application Qt avec interface graphique, a été test�
 - La camionnette rééquilibre les sites comme prévu
 - Aucun thread ne reste bloqué indéfiniment
 - La terminaison propre fonctionne sans deadlocks
+
+
+## Utilisation de l'IA
+Nous avons utilisé l'IA pour nous aider à structurer notre rapport et à clarifier certains concepts liés aux moniteurs de Mesa et à la gestion de la concurrence. L'IA nous a aidés à formuler des explications plus claires et à organiser nos idées de manière cohérente. Cependant, tout le code source et les choix d'implémentation sont entièrement notre propre travail.

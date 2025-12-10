@@ -1,3 +1,8 @@
+/*
+    * person.h
+    * Author: Jonatan Perret and Adrien Marcuard
+*/
+
 #ifndef PERSON_H
 #define PERSON_H
 
